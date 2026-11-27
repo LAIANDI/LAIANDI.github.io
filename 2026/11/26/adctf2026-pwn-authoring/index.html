@@ -1,0 +1,321 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>ADCTF 2026 pwn 出题复盘：从 ret2win 到 FSOP | LAD</title><meta name="author" content="LAIANDI"><meta name="copyright" content="LAIANDI"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="ffffff"><meta name="description" content="这是我第一次给工作室的比赛完整出 pwn 方向。六道题，从最简单的 ret2win 到 glibc 2.35 的 FSOP。出题的目标不是把所有人拦在门外，而是让刚入门的人能拿到第一滴血，让打过几场比赛的人在第 5、6 题上真的花时间。 先把题目摆出来：    题目 难度 核心考点 一句话    badge Easy ret2win 访客登记，名字太长   plugin Easy RWX + sh">
+<meta property="og:type" content="article">
+<meta property="og:title" content="ADCTF 2026 pwn 出题复盘：从 ret2win 到 FSOP">
+<meta property="og:url" content="https://laiandi.github.io/2026/11/26/adctf2026-pwn-authoring/index.html">
+<meta property="og:site_name" content="LAD">
+<meta property="og:description" content="这是我第一次给工作室的比赛完整出 pwn 方向。六道题，从最简单的 ret2win 到 glibc 2.35 的 FSOP。出题的目标不是把所有人拦在门外，而是让刚入门的人能拿到第一滴血，让打过几场比赛的人在第 5、6 题上真的花时间。 先把题目摆出来：    题目 难度 核心考点 一句话    badge Easy ret2win 访客登记，名字太长   plugin Easy RWX + sh">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://laiandi.github.io/img/6.jpg">
+<meta property="article:published_time" content="2026-11-26T13:30:00.000Z">
+<meta property="article:modified_time" content="2026-11-26T08:56:37.571Z">
+<meta property="article:author" content="LAIANDI">
+<meta property="article:tag" content="pwn">
+<meta property="article:tag" content="出题">
+<meta property="article:tag" content="ADCTF">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://laiandi.github.io/img/6.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "ADCTF 2026 pwn 出题复盘：从 ret2win 到 FSOP",
+  "url": "https://laiandi.github.io/2026/11/26/adctf2026-pwn-authoring/",
+  "image": "https://laiandi.github.io/img/6.jpg",
+  "datePublished": "2026-11-26T13:30:00.000Z",
+  "dateModified": "2026-11-26T08:56:37.571Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "LAIANDI",
+      "url": "https://LAIANDI.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.ico"><link rel="canonical" href="https://laiandi.github.io/2026/11/26/adctf2026-pwn-authoring/index.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css?v=5.5.4"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.1.0/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui@6.1.9/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', 'ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.xml","preload":true,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":50,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid@4.13.0/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'ADCTF 2026 pwn 出题复盘：从 ret2win 到 FSOP',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><meta name="generator" content="Hexo 7.3.0"></head><body><div class="bg-animation" id="web_bg" style="background-image: url(/./img/sky.png);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/./img/6.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">10</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">6</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">3</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/2026/04/09/caidan/"><i class="fa-fw fas fa-utensils"></i><span> 菜单</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 列表</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/shuoshuo/"><i class="fa-fw fas fa-comment-dots"></i><span> 说说</span></a></li><li><a class="site-page child" href="/link/"><i class="fa-fw fas fa-link"></i><span> 友情链接</span></a></li><li><a class="site-page child" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></li></ul></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src="/./img/6.jpg" alt="Logo"><span class="site-name">LAD</span></a><a class="nav-page-title" href="/"><span class="site-name">ADCTF 2026 pwn 出题复盘：从 ret2win 到 FSOP</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/2026/04/09/caidan/"><i class="fa-fw fas fa-utensils"></i><span> 菜单</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-list"></i><span> 列表</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/shuoshuo/"><i class="fa-fw fas fa-comment-dots"></i><span> 说说</span></a></li><li><a class="site-page child" href="/link/"><i class="fa-fw fas fa-link"></i><span> 友情链接</span></a></li><li><a class="site-page child" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></li></ul></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">ADCTF 2026 pwn 出题复盘：从 ret2win 到 FSOP</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-11-26T13:30:00.000Z" title="发表于 2026-11-26 21:30:00">2026-11-26</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-11-26T08:56:37.571Z" title="更新于 2026-11-26 16:56:37">2026-11-26</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ctf/">ctf</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><p>这是我第一次给工作室的比赛完整出 pwn 方向。六道题，从最简单的 ret2win 到 glibc 2.35 的 FSOP。出题的目标不是把所有人拦在门外，而是让刚入门的人能拿到第一滴血，让打过几场比赛的人在第 5、6 题上真的花时间。</p>
+<p>先把题目摆出来：</p>
+<table>
+<thead>
+<tr>
+<th>题目</th>
+<th>难度</th>
+<th>核心考点</th>
+<th>一句话</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>badge</td>
+<td>Easy</td>
+<td>ret2win</td>
+<td>访客登记，名字太长</td>
+</tr>
+<tr>
+<td>plugin</td>
+<td>Easy</td>
+<td>RWX + shellcode</td>
+<td>插件加载器，输入要编码</td>
+</tr>
+<tr>
+<td>banner</td>
+<td>Normal</td>
+<td>格式化字符串 + GOT</td>
+<td>横幅生成器，标题里能写 <code>%s</code></td>
+</tr>
+<tr>
+<td>bastion</td>
+<td>Normal</td>
+<td>栈迁移</td>
+<td>白名单跳板机，只溢出到返回地址</td>
+</tr>
+<tr>
+<td>draft</td>
+<td>Hard</td>
+<td>libc 泄漏 + ORW</td>
+<td>记事本，崩溃后转储现场</td>
+</tr>
+<tr>
+<td>ghost</td>
+<td>Expert</td>
+<td>UAF + tcache + FSOP</td>
+<td>便签本，删除后副本还在</td>
+</tr>
+</tbody></table>
+<span id="more"></span>
+
+<h2 id="设计原则"><a href="#设计原则" class="headerlink" title="设计原则"></a>设计原则</h2><p>定题之前先定了几条规则，后面每道题都按这个来：</p>
+<ol>
+<li><strong>一题一个核心考点。</strong> 不在同一道题里堆三个漏洞，选手卡住时能明确知道自己缺哪块。</li>
+<li><strong>每题留一个「钩子」。</strong> 一个反直觉的小设计，让背过模板的人停下来想一下：plugin 的 XOR、banner 的第二次 <code>printf</code>、bastion 的 <code>-z now</code>、draft 的 88 偏移、ghost 的浅拷贝。</li>
+<li><strong>防非预期解，但不堵死预期解。</strong> 该给 <code>system</code> 的地方给，该禁 <code>execve</code> 的地方禁；不靠「藏 flag」这种场外手段。</li>
+<li><strong>难度要能分层。</strong> 前两题送分，中间两题做区分，后两题拉开差距。理想情况是：新手 1–2 题，普通选手 3–4 题，强一点的 5 题，ghost 留给愿意啃的人。</li>
+</ol>
+<h2 id="1-badge：先让人拿到-flag"><a href="#1-badge：先让人拿到-flag" class="headerlink" title="1. badge：先让人拿到 flag"></a>1. badge：先让人拿到 flag</h2><p>题面是 2019 年实习生写的访客登记系统，名字输入框没做长度限制。源码就三行关键逻辑：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">char</span> buf[<span class="number">0x20</span>];</span><br><span class="line">read(<span class="number">0</span>, buf, <span class="number">0x100</span>);</span><br><span class="line"><span class="built_in">printf</span>(<span class="string">&quot;姓名：%s\n&quot;</span>, buf);</span><br></pre></td></tr></table></figure>
+
+<p>没开 PIE、没开 canary，<code>strings</code> 里直接有 <code>cat /flag</code>，反查到一个 <code>system(&quot;cat /flag&quot;)</code> 的后门函数。偏移 <code>0x20 + 8 = 40</code>，跳过去就完事。</p>
+<p><strong>设计上的一个小细节</strong>：后门函数加了 <code>force_align_arg_pointer</code>。直接跳到函数入口时，<code>rsp % 16 == 0</code>，<code>system</code> 里的 <code>movaps</code> 会崩；加上这个属性，编译器会在函数开头对齐栈。下一题自己写 ROP 会再撞上对齐问题，正好在这里先埋个伏笔。</p>
+<p>这是整场比赛的「第一滴血」题，预期 5–10 分钟。它不负责区分度，只负责让人愿意继续往下做。</p>
+<h2 id="2-plugin：NX-不是绝对的"><a href="#2-plugin：NX-不是绝对的" class="headerlink" title="2. plugin：NX 不是绝对的"></a>2. plugin：NX 不是绝对的</h2><p>题面是一个「插件加载器」，README 写着 <em>Absolutely safe. Trust me.</em>。核心逻辑：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">mem = mmap(<span class="literal">NULL</span>, <span class="number">0x1000</span>, PROT_READ | PROT_WRITE | PROT_EXEC, ...);</span><br><span class="line">n = read(<span class="number">0</span>, mem, <span class="number">0x20</span>);</span><br><span class="line"><span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; n; i++)</span><br><span class="line">    ((<span class="type">unsigned</span> <span class="type">char</span> *)mem)[i] ^= <span class="number">0x42</span>;</span><br><span class="line">((<span class="type">void</span> (*)(<span class="type">void</span>))mem)();</span><br></pre></td></tr></table></figure>
+
+<p>它本来就打算执行你发的字节，所以这不是传统溢出，而是「怎么在 32 字节里塞下一段能用的 shellcode」。</p>
+<p>两个限制：</p>
+<ul>
+<li><strong>输入要编码</strong>：程序会逐字节 XOR <code>0x42</code>，直接发原始 shellcode 执行的是乱码。</li>
+<li><strong>最多 32 字节</strong>：<code>shellcraft.sh()</code> 在 amd64 上是 48 字节，会被截断。</li>
+</ul>
+<p>预期解是手写 23 字节的 <code>execve(&quot;/bin/sh&quot;, NULL, NULL)</code>：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">shellcode = (</span><br><span class="line">    <span class="string">b&quot;\x48\x31\xf6&quot;</span>                              <span class="comment"># xor rsi, rsi</span></span><br><span class="line">    <span class="string">b&quot;\x56&quot;</span>                                      <span class="comment"># push rsi</span></span><br><span class="line">    <span class="string">b&quot;\x48\xbf\x2f\x62\x69\x6e\x2f\x2f\x73\x68&quot;</span>  <span class="comment"># mov rdi, &quot;//bin/sh&quot;</span></span><br><span class="line">    <span class="string">b&quot;\x57&quot;</span>                                      <span class="comment"># push rdi</span></span><br><span class="line">    <span class="string">b&quot;\x54\x5f&quot;</span>                                  <span class="comment"># push rsp; pop rdi</span></span><br><span class="line">    <span class="string">b&quot;\x6a\x3b\x58&quot;</span>                              <span class="comment"># push 0x3b; pop rax</span></span><br><span class="line">    <span class="string">b&quot;\x99&quot;</span>                                      <span class="comment"># cdq</span></span><br><span class="line">    <span class="string">b&quot;\x0f\x05&quot;</span>                                  <span class="comment"># syscall</span></span><br><span class="line">)</span><br><span class="line"><span class="keyword">assert</span> <span class="built_in">len</span>(shellcode) == <span class="number">23</span></span><br></pre></td></tr></table></figure>
+
+<p>发之前 <code>xor(shellcode, 0x42)</code>。<code>sendline</code> 补的 <code>\n</code> 解码后落在 <code>syscall</code> 后面，<code>execve</code> 成功之后根本不会执行到，不会影响利用。</p>
+<p>这题想传达的是：<strong>NX 保护的是栈和堆，<code>mmap(PROT_EXEC)</code> 申请的内存不受影响</strong>。别看到 NX 就条件反射只会 ROP。</p>
+<h2 id="3-banner：第二次-printf"><a href="#3-banner：第二次-printf" class="headerlink" title="3. banner：第二次 printf"></a>3. banner：第二次 printf</h2><p>题面是横幅生成器，标题和署名都会原样渲染。漏洞很直白：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">char</span> title[<span class="number">0x100</span>];</span><br><span class="line"><span class="type">char</span> sign[<span class="number">0x100</span>];</span><br><span class="line"></span><br><span class="line">read_input(title, <span class="number">0x100</span>);</span><br><span class="line"><span class="built_in">printf</span>(title);          <span class="comment">// 第一次</span></span><br><span class="line">read_input(sign, <span class="number">0x100</span>);</span><br><span class="line"><span class="built_in">printf</span>(sign);           <span class="comment">// 第二次</span></span><br></pre></td></tr></table></figure>
+
+<p>两次都把用户输入当格式串。保护是 Partial RELRO + No PIE，GOT 可写、地址固定，基本就是冲着 GOT 去的。</p>
+<p><strong>钩子</strong>：程序里有一个从来没被调用过的函数，只执行 <code>system(&quot;true&quot;)</code>。它唯一的作用是让二进制链上 <code>system@plt</code>——否则只能泄漏 libc 再算 <code>system</code>，对 Normal 难度来说太重了。</p>
+<p>预期解：</p>
+<ol>
+<li>先用 <code>%p</code> 找到输入缓冲区对应的参数偏移，实测 <code>%38$p</code> 就是我们填的 8 个 <code>A</code>。</li>
+<li>第一次输入用 <code>fmtstr_payload(38, &#123;printf@got: system@plt&#125;)</code> 把 <code>printf@got</code> 改成 <code>system@plt</code>。</li>
+<li>第二次输入 <code>/bin/sh</code>，这次 <code>printf(sign)</code> 实际调用的是 <code>system(sign)</code>。</li>
+</ol>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">payload = fmtstr_payload(<span class="number">38</span>, &#123;<span class="number">0x404010</span>: <span class="number">0x401040</span>&#125;)</span><br><span class="line">io.sendline(payload)</span><br><span class="line">io.recvuntil(<span class="string">&quot;署名：&quot;</span>.encode())</span><br><span class="line">io.sendline(<span class="string">b&quot;/bin/sh&quot;</span>)</span><br></pre></td></tr></table></figure>
+
+<p>为什么第一次写 GOT、第二次才生效？因为 GOT 的解析发生在<strong>调用入口</strong>：第一次 <code>printf</code> 已经进 libc 了，写到一半不会改变当前这次调用；等它返回后，第二次 <code>printf</code> 才会读到新的 GOT 值。这个时序是这题最值得讲的地方。</p>
+<h2 id="4-bastion：只有一次-ret-的机会"><a href="#4-bastion：只有一次-ret-的机会" class="headerlink" title="4. bastion：只有一次 ret 的机会"></a>4. bastion：只有一次 ret 的机会</h2><p>题面是一台 2015 年的跳板机，只允许 <code>whoami</code> 和 <code>ls</code>。漏洞在 <code>copy_to_stack</code>：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> <span class="type">void</span> <span class="title function_">copy_to_stack</span><span class="params">(<span class="type">char</span> *dst)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="built_in">memcpy</span>(dst, cmd, <span class="number">0x30</span>);   <span class="comment">// dst 是 run_command 里的 char buf[0x20]</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>0x20</code> 的缓冲区拷 <code>0x30</code>，刚好覆盖 <code>buf</code>、saved rbp、saved ret，<strong>多一个字节都没有</strong>。栈上放不下 ROP 链，但 <code>cmd</code> 这个全局数组有 <code>0x100</code> 字节，而且 <code>cmd_log</code> 在它前面留了 4KB。</p>
+<p>所以预期解是栈迁移：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">buf[0x20] | saved rbp | saved ret</span><br><span class="line">          | cmd+0x28  | leave; ret</span><br></pre></td></tr></table></figure>
+
+<p>第一次 <code>leave</code> 把 <code>rsp</code> 指到 saved ret，<code>ret</code> 跳到 <code>leave; ret</code>；第二次 <code>leave</code> 把 <code>rsp</code> 搬到 <code>cmd+0x28</code>，之后的链就在 <code>.bss</code> 里执行：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">read(0, cmd+0x90, 0x10)   # 写入 &quot;/bin/sh\0&quot;</span><br><span class="line">system(cmd+0x90)</span><br></pre></td></tr></table></figure>
+
+<p>两个容易被忽略的工程细节：</p>
+<ul>
+<li><strong><code>-Wl,-z,now</code></strong>：迁移后 <code>rsp</code> 在 <code>.bss</code>，如果 <code>system@plt</code> 还没绑定，懒绑定会在 <code>rsp</code> 下面分配 xsave 区（本机约 <code>0x9e0</code> 字节），<code>.bss</code> 空间不够就直接 SIGSEGV。加 <code>-z now</code> 让所有 PLT 在启动时绑好。</li>
+<li><strong><code>cmd</code> 前面的 4KB <code>cmd_log</code></strong>：<code>system</code> 自己的栈帧要往下长，这块日志缓冲正好提供了空间。</li>
+</ul>
+<p>这两个点不是为了「防选手」，而是本地测试时真的踩过；如果只按常规 ROP 写，远程会莫名其妙地崩。</p>
+<h2 id="5-draft：偏移不是-72"><a href="#5-draft：偏移不是-72" class="headerlink" title="5. draft：偏移不是 72"></a>5. draft：偏移不是 72</h2><p>题面是一个记事本，贴太长会「转储现场」。漏洞：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">char</span> buf[<span class="number">0x40</span>];</span><br><span class="line">n = read(<span class="number">0</span>, buf, <span class="number">0x200</span>);</span><br><span class="line"><span class="keyword">if</span> (n &gt; <span class="keyword">sizeof</span>(buf)) &#123;</span><br><span class="line">    write(<span class="number">1</span>, buf, <span class="keyword">sizeof</span>(buf));   <span class="comment">// 泄 0x40 字节</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>没 canary，但程序装了 seccomp，只杀 <code>execve</code>，没有 <code>system</code>，所以只能走 ORW。</p>
+<p><strong>第一个坑是偏移。</strong> 看源码会觉得是 <code>0x40 + 8 = 72</code>，但反汇编里 <code>buf</code> 在 <code>rbp-0x50</code>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">sub    $0x50,%rsp</span><br><span class="line">lea    -0x50(%rbp),%rax</span><br><span class="line">call   read@plt</span><br><span class="line">mov    %rax,-0x8(%rbp)     # ssize_t n</span><br></pre></td></tr></table></figure>
+
+<p>编译器为了放 <code>ssize_t n</code>，把 <code>buf</code> 挪到了 <code>rbp-0x50</code>，所以真实偏移是 <code>0x50 + 8 = 88</code>。这种「源码和汇编对不上」的题，比单纯堆 gadget 更接近真实漏洞分析。</p>
+<p><strong>第二个坑是泄漏。</strong> 用 <code>write(1, puts@got, 8)</code> 而不是 <code>puts(puts@got)</code>：<code>puts</code> 遇到 <code>\x00</code> 就停，libc 地址里随机一个零字节就会把泄漏截短。泄漏完还要回跳到 <code>main</code>，否则没有第二次输入机会。</p>
+<p><strong>第三个坑是路径。</strong> <code>open(&quot;/flag&quot;)</code> 的字符串必须用 <code>send(b&quot;/flag\x00&quot;)</code>，不能用 <code>sendline</code>——多出来的 <code>\n</code> 会让 <code>open</code> 直接失败。</p>
+<p>完整的 ORW 链是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">read(0, scratch, 6)  -&gt; 写入 &quot;/flag\0&quot;</span><br><span class="line">open(scratch, 0)</span><br><span class="line">read(3, scratch, 0x100)</span><br><span class="line">write(1, scratch, 0x100)</span><br></pre></td></tr></table></figure>
+
+<p>这题是整场的分水岭：能独立写出「泄漏 → 回跳 → ORW」的人，基本就具备打真实 pwn 题的能力了。</p>
+<h2 id="6-ghost：删除之后"><a href="#6-ghost：删除之后" class="headerlink" title="6. ghost：删除之后"></a>6. ghost：删除之后</h2><p>题面是一个便签本，删除功能「测试过很多次，不会残留」。实际上 <code>del</code> 里确实有 <code>free</code> 和 <code>memset</code>，问题出在「复制」：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> <span class="type">void</span> <span class="title function_">dup_note</span><span class="params">(<span class="type">void</span>)</span></span><br><span class="line">&#123;</span><br><span class="line">    notes[dst] = notes[src];   <span class="comment">// 48 字节结构体整体浅拷贝</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>struct note</code> 里有一个裸指针 <code>char *data</code>。复制之后两个槽位指向同一块堆；删掉其中一个，另一个就拿着野指针，<code>show</code> 是 UAF 读，<code>edit</code> 是 UAF 写。再加上 <code>show</code> 用的是 <code>write(1, data, size)</code>，不会在 <code>\0</code> 停下，一次能把整个 chunk 读干净。</p>
+<p>保护是 Full RELRO + PIE + NX，libc 2.35（<code>__free_hook</code> &#x2F; <code>__malloc_hook</code> 已经没了），所以 GOT 和 hook 两条老路都断，只能打 FSOP。</p>
+<p>预期链分四步：</p>
+<ol>
+<li><strong>泄 heap</strong>：tcache 的 <code>fd</code> 是 safe-linking 的 <code>next ^ (chunk &gt;&gt; 12)</code>。先 free 一个 chunk，<code>show</code> 出 <code>chunk &gt;&gt; 12</code>；再 free 一个相邻 chunk，两者同页，异或回去就能同时恢复两个地址。</li>
+<li><strong>泄 libc</strong>：tcache 每个 size 最多 7 个，先塞满 7 个 <code>0x110</code>，第 8 个进 unsorted bin，<code>fd/bk = main_arena + 0x60</code>。这份 libc 的偏移是 <code>0x21ace0</code>。</li>
+<li><strong>占堆</strong>：在泄 libc <strong>之前</strong>先把 fake FILE、<code>_wide_data</code>、fake vtable 三块堆占好。顺序反了，<code>malloc</code> 会从 unsorted bin 里切一块走，地址全错。</li>
+<li><strong>tcache poisoning → <code>_IO_list_all</code></strong>：把 <code>tcache[0x30]</code> 链头的 <code>fd</code> 改成 <code>_IO_list_all</code>，两次 <code>add</code> 之后，第二次的 <code>read</code> 直接写在 <code>_IO_list_all</code> 上。退出时 <code>exit</code> → <code>_IO_cleanup</code> → <code>_IO_flush_all_lockp</code> → 假 FILE → <code>_IO_wfile_overflow</code> → <code>_IO_wdoallocbuf</code> → <code>_wide_vtable-&gt;__doallocate</code>，填成 <code>system</code>，<code>_flags</code> 写 <code>&quot;  sh;&quot;</code>。</li>
+</ol>
+<p>这题是整场唯一一道需要「堆布局」的题。它的难点不在单个 gadget，而在顺序：<strong>先占堆、再泄 libc、最后改链</strong>，顺序错一步地址就对不上。写题解时我特意把「为什么不能先泄 libc」单独讲了一段，因为这是我自己调试时卡最久的地方。</p>
+<h2 id="部署"><a href="#部署" class="headerlink" title="部署"></a>部署</h2><p>六道题都用了同一套 Docker + socat 模板：</p>
+<ul>
+<li>base <code>ubuntu:22.04</code>，只装 <code>socat</code>（draft&#x2F;ghost 额外装 <code>patchelf</code>）</li>
+<li>每题一个非 root 用户 <code>ctf</code>，<code>timeout 60</code>，<code>ulimit -c 0</code></li>
+<li>端口从 <code>10001</code> 到 <code>10006</code>，一题一个容器</li>
+<li>flag 由平台通过 <code>A1CTF_FLAG</code> 注入，运行时写到 <code>/flag</code>，权限 <code>400</code>、属主 root</li>
+</ul>
+<p>几个部署时踩过的坑：</p>
+<ul>
+<li><strong>不要写 <code>$&#123;A1CTF_FLAG:-flag&#123;xxx&#125;&#125;</code></strong>。默认值里的 <code>&#125;</code> 会截断 shell 参数展开，导致 flag 变成 <code>flag&#123;xxx</code>。正确做法是先取变量，再单独判断空值。</li>
+<li><strong>固定 libc</strong>：draft 和 ghost 用 <code>patchelf --set-interpreter</code> + <code>--set-rpath</code> 绑定自带的 <code>ld</code> 和 <code>libc.so.6</code>，否则不同机器的 glibc 版本会让「本地能打通、远程打不通」。</li>
+<li><strong>关掉 CET</strong>：编译加 <code>-fcf-protection=none</code>，避免 SHSTK&#x2F;IBT 干扰传统 ROP 练习。</li>
+<li><strong>ghost 用 PIE + Full RELRO</strong>，是有意为之；如果还开 GOT 可写，这题就退化成普通的 tcache poisoning 了。</li>
+</ul>
+<h2 id="复盘"><a href="#复盘" class="headerlink" title="复盘"></a>复盘</h2><p>出题和做题是两种视角。做题时想的是「怎么打通」，出题时要想「他为什么会卡在这里」：</p>
+<ul>
+<li><strong>难度曲线比单题难度更重要。</strong> badge 和 plugin 负责让人留下来，banner 和 bastion 负责区分，draft 和 ghost 负责筛人。如果六道题都很难，大部分人第二题就走了。</li>
+<li><strong>「钩子」要能被发现。</strong> plugin 的 XOR 在题面里写了「已编码」，banner 的第二次 <code>printf</code> 在交互里能看到，draft 的偏移在反汇编里能对出来。好的钩子是「想到了就能过」，不是「猜不到就卡死」。</li>
+<li><strong>本地能打通不等于远程能打通。</strong> bastion 的 <code>-z now</code>、draft 的 libc、ghost 的堆地址，都是远程才暴露的问题。出题人必须自己用远程环境完整跑一遍。</li>
+<li><strong>防非预期解要靠设计，不靠藏。</strong> 去掉 <code>system</code>、加 seccomp、开 Full RELRO，这些都是「让预期解成为唯一解」的正常手段；把 flag 藏起来、改题面、临时加限制，只会让选手觉得不公平。</li>
+</ul>
+<p>如果下次还出 pwn，我想改进三点：给每道题写一个自动化的预期解脚本并纳入 CI；给 ghost 这种长链路题加一个「阶段性提示」机制；以及提前找没看过题的人做盲测，记录他们卡在第几分钟。</p>
+<p>最后，感谢帮忙测试和提意见的队友。出题比想象中累，但看到有人在 draft 的 88 偏移上骂骂咧咧地打通，还是挺有意思的。</p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://LAIANDI.github.io">LAIANDI</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://laiandi.github.io/2026/11/26/adctf2026-pwn-authoring/">https://laiandi.github.io/2026/11/26/adctf2026-pwn-authoring/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://LAIANDI.github.io" target="_blank">LAD</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/pwn/">pwn</a><a class="post-meta__tags" href="/tags/%E5%87%BA%E9%A2%98/">出题</a><a class="post-meta__tags" href="/tags/ADCTF/">ADCTF</a></div><div class="post-share"><div class="social-share" data-image="/./img/6.jpg" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width" href="/2026/04/14/pwn75/" title="ctfshow pwn-75"><img class="cover" src="/./img/ctfshowcover.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">ctfshow pwn-75</div></div><div class="info-2"><div class="info-item-1">题目：栈空间不够怎么办？栈迁移，没见过cs:32 位开启 NX 保护，部分开启 RELRO运行一下： 这是重点！后续编写 exp 要注意的细节。 IDA 分析，查看 main 中的 ctfshow 函数：其实在连靶机进行交互时，无论你输入什么，都是招原样给你打印出来的，主要还是看 read、memset 函数，况且没开 canary 保护有站处理漏洞可以利用。 还看到了 system 函数。 跟进 hackerout 函数：看到有 system 函数，不过里边不是 binsh，问题不大可以构造出来。 看回 ctfshow 函数的栈溢出漏洞，可以发现 s 容量是 36，但 s 到 ebp 距离有 0x28&#x3D;40，加上覆盖 ebp 本身的 4 字节，仅 8 字节（44-36&#x3D;8）溢出空间，无法直接布置 system(“&#x2F;bin&#x2F;sh”); 所需的 ROP 链（需覆盖返回地址 + 传递参数，至少 12 字节以上），那么这里就应该要想到栈迁移了。 栈迁移的本质是通过 leave 指令改变栈顶指针（esp）的位置，将原本狭小的栈空间转移到我们可控的大...</div></div></div></a></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/./img/6.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">LAIANDI</div><div class="author-info-description">LAD 的个人博客，记录 CTF、Pwn 学习笔记与日常折腾。</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">10</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">6</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">3</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/LAIANDI"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/LAIANDI" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content is-expand"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E8%AE%BE%E8%AE%A1%E5%8E%9F%E5%88%99"><span class="toc-number">1.</span> <span class="toc-text">设计原则</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#1-badge%EF%BC%9A%E5%85%88%E8%AE%A9%E4%BA%BA%E6%8B%BF%E5%88%B0-flag"><span class="toc-number">2.</span> <span class="toc-text">1. badge：先让人拿到 flag</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-plugin%EF%BC%9ANX-%E4%B8%8D%E6%98%AF%E7%BB%9D%E5%AF%B9%E7%9A%84"><span class="toc-number">3.</span> <span class="toc-text">2. plugin：NX 不是绝对的</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-banner%EF%BC%9A%E7%AC%AC%E4%BA%8C%E6%AC%A1-printf"><span class="toc-number">4.</span> <span class="toc-text">3. banner：第二次 printf</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-bastion%EF%BC%9A%E5%8F%AA%E6%9C%89%E4%B8%80%E6%AC%A1-ret-%E7%9A%84%E6%9C%BA%E4%BC%9A"><span class="toc-number">5.</span> <span class="toc-text">4. bastion：只有一次 ret 的机会</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-draft%EF%BC%9A%E5%81%8F%E7%A7%BB%E4%B8%8D%E6%98%AF-72"><span class="toc-number">6.</span> <span class="toc-text">5. draft：偏移不是 72</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-ghost%EF%BC%9A%E5%88%A0%E9%99%A4%E4%B9%8B%E5%90%8E"><span class="toc-number">7.</span> <span class="toc-text">6. ghost：删除之后</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E9%83%A8%E7%BD%B2"><span class="toc-number">8.</span> <span class="toc-text">部署</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%A4%8D%E7%9B%98"><span class="toc-number">9.</span> <span class="toc-text">复盘</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/11/26/adctf2026-pwn-authoring/" title="ADCTF 2026 pwn 出题复盘：从 ret2win 到 FSOP">ADCTF 2026 pwn 出题复盘：从 ret2win 到 FSOP</a><time datetime="2026-11-26T13:30:00.000Z" title="发表于 2026-11-26 21:30:00">2026-11-26</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2026/04/14/pwn75/" title="ctfshow pwn-75"><img src="/./img/ctfshowcover.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="ctfshow pwn-75"/></a><div class="content"><a class="title" href="/2026/04/14/pwn75/" title="ctfshow pwn-75">ctfshow pwn-75</a><time datetime="2026-04-13T17:06:43.000Z" title="发表于 2026-04-14 01:06:43">2026-04-14</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2026/04/11/pwn72/" title="ctfshow-pwn72"><img src="/./img/ctfshowcover.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="ctfshow-pwn72"/></a><div class="content"><a class="title" href="/2026/04/11/pwn72/" title="ctfshow-pwn72">ctfshow-pwn72</a><time datetime="2026-04-11T08:43:02.000Z" title="发表于 2026-04-11 16:43:02">2026-04-11</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2026/04/11/pwn71/" title="ctfshow-pwn71"><img src="/./img/ctfshowcover.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="ctfshow-pwn71"/></a><div class="content"><a class="title" href="/2026/04/11/pwn71/" title="ctfshow-pwn71">ctfshow-pwn71</a><time datetime="2026-04-11T07:40:04.000Z" title="发表于 2026-04-11 15:40:04">2026-04-11</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2026/04/09/pwn68/" title="ctfshow pwn-68"><img src="/./img/ctfshowcover.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="ctfshow pwn-68"/></a><div class="content"><a class="title" href="/2026/04/09/pwn68/" title="ctfshow pwn-68">ctfshow pwn-68</a><time datetime="2026-04-09T15:44:47.000Z" title="发表于 2026-04-09 23:44:47">2026-04-09</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2025 - 2026 By LAIANDI</span><span class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.5.4</a></span></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js?v=5.5.4"></script><script src="/js/main.js?v=5.5.4"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui@6.1.9/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"></div><script id="canvas_nest" defer="defer" color="61,242,241" opacity="2.5" zIndex="-1" count="200" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/dist/canvas-nest.min.js"></script><script id="click-show-text" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/dist/click-show-text.min.js" data-mobile="false" data-text="I,LOVE,YOU" data-fontsize="15px" data-random="false" async="async"></script><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="placeholder" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js?v=5.5.4"></script></div></div></body></html>
